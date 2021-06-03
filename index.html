@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+
+<head>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+  <div class="mapa">
+  </div>
+  <div class="grafico">
+  </div>
+  <div class="barraTiempo">
+  </div>
+
+<script src="https://d3js.org/d3.v4.min.js"></script> <!-- Inclusion of d3 v4 -->
+<script src="https://d3js.org/topojson.v2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/holtzy/D3-graph-gallery@master/LIB/d3.layout.cloud.js"></script>
+
+<script>
+
+
+  //Variables del mapa
+  var width = 600,
+      height = 600,
+      active = d3.select(null),
+      xVal = 2003, //fecha inicial para los datos
+      datos;
+
+
+  //-----Construcción del slider-----//
+
+  //Variables del slider
+  var svg2 = d3.select("div.barraTiempo").append("svg").attr("id","barraSVG").attr("width", width).attr("height", 100),
+      margin = {right: 50, left: 50},
+      range = [2003, 2016],
+      step = 1;
+
+  var xScale = d3.scaleLinear()
+      .domain([2003, 2016])
+      .range([0, width - 100])
+      .clamp(true);
+
+  //Variables para hacer el slider discontinuo (pasar de año en año)
+  var rangeValues = d3.range(range[0], range[1], step || 1).concat(range[1]);
+  var xAxis = d3.axisBottom(xScale).tickValues(rangeValues).tickFormat(function (d) {
+          return d;
+      });
+
+  //Crear slider
+  var slider = svg2.append("g")
+      .attr("class", "slider")
+      .attr("transform", "translate(" + margin.left + "," + 50 + ")");
+
+  slider.append("line")
+        .attr("class", "track")
+        .attr("x1", xScale.range()[0])
+        .attr("x2", xScale.range()[1])
+        .select(function() { return this.parentNode.appendChild(this.cloneNode(true)); })
+        .attr("class", "track-inset")
+        .select(function() { return this.parentNode.appendChild(this.cloneNode(true)); })
+        .attr("class", "track-overlay")
+        .call(d3.drag()
+          .on("start.interrupt", function() { slider.interrupt()})
+          .on('drag', function () {
+            dragged(d3.event.x);
+          }));
+
+  slider.insert("g", ".track-overlay")
+        .attr("class", "ticks")
+        .attr("transform", "translate(0," + 18 + ")")
+        .selectAll("text")
+        .data(xScale.ticks(10))
+        .enter().append("text")
+                .attr("x", xScale)
+                .attr("text-anchor", "middle")
+                .text(function(d) { return d});
+
+  var handle = slider.insert("circle", ".track-overlay")
+      .attr("class", "handle")
+      .attr("r", 9);
+
+
+  //-----Construcción del mapa-----
+  var projection = d3.geoMercator() // proyección
+      .center([-102.5, 25]) //centro de la proyección
+      .rotate(-20)
+      .scale(1000)
+      .translate([width / 2, height / 2]);
+
+  var zoom = d3.zoom()
+      .scaleExtent([1, 8])
+      .on("zoom", zoomed);
+
+  var path = d3.geoPath()
+      .projection(projection);
+
+  var size = d3.scaleLinear()
+        .domain([1,10])  // rango en los datos
+        .range([ 4, 30])  // rango en pixeles
+
+  var svg = d3.select("div.mapa").append("svg")
+      .attr("width", width)
+      .attr("height", height)
+      .attr("id", "mapaSVG")
+      .on("click", stopped, true);
+
+  svg.append("rect")
+      .attr("class", "background")
+      .attr("width", width)
+      .attr("height", height)
+      .on("click", reset);
+
+  var g = svg.append("g");
+
+  svg
+      .call(zoom); //esta línea permite hacer zoom con el mouse
+
+  d3.json("data/publicacionesEstados.json", function(error, publicacionesEstados) {
+    if (error) throw error;
+
+    g.selectAll("path")
+        .data(topojson.feature(publicacionesEstados, publicacionesEstados.objects.publicacionesEstados).features)
+        .enter().append("path")
+                .attr("d", path)
+                .attr("class", "feature")
+                .on("click", clicked);
+
+    g.append("path")
+      .datum(topojson.mesh(publicacionesEstados, publicacionesEstados.objects.publicacionesEstados, function(a, b) { return a !== b; }))
+      .attr("class", "mesh")
+      .attr("d", path);
+
+    g.selectAll("myCircles")
+      .data(topojson.feature(publicacionesEstados, publicacionesEstados.objects.publicacionesEstados).features)
+      .enter().append("circle")
+              .attr("cx", function(d){ return path.centroid(d)[0] })
+              .attr("cy", function(d){ return path.centroid(d)[1] })
+              .attr("stroke-width", 3)
+              .attr("fill-opacity", .7)
+              .attr("fill", "orange")
+              .attr("r", function(d){
+                  return size(d.properties.a2003);
+              });
+  });
+
+
+
+  //-----Construcción del gráfico-----//
+/*
+  // set the dimensions and margins of the graph
+  var margin = {top: 20, right: 20, bottom: 30, left: 40},
+      width = 500 - margin.left - margin.right,
+      height = 500 - margin.top - margin.bottom;
+
+  // set the ranges
+  var x = d3.scaleBand()
+            .range([0, width])
+            .padding(0.1);
+  var y = d3.scaleLinear()
+            .range([height, 0]);
+
+  // append the svg object to the body of the page
+  // append a 'group' element to 'svg'
+  // moves the 'group' element to the top left margin
+  var svg = d3.select("div.grafico").append("svg")
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+    .append("g")
+      .attr("transform",
+            "translate(" + margin.left + "," + margin.top + ")");
+
+  // get the data
+  d3.csv("data/publicacionesEtnias.csv", function(error, data) {
+    if (error) throw error;
+
+    var dataA = data//.filter(function(d){return d.a2003 > 0;}).sort(function(a, b) {return a.a2003 - b.a2003;});
+
+    // Scale the range of the data in the domains
+    x.domain(dataA.map(function(d) { return d.pueblo; }));
+    y.domain([0, d3.max(data, function(d) { return d.a2003; })]);
+    // append the rectangles for the bar chart
+    svg.selectAll(".bar")
+        .data(dataA)
+      .enter().append("rect")
+        .attr("class", "bar")
+        .attr("x", function(d) { return x(d.pueblo); })
+        .attr("width", x.bandwidth())
+        .attr("y", function(d) { return y(d.a2003); })
+        .attr("height", function(d) { return height - y(d.a2003); });
+
+
+    // add the x Axis
+    svg.append("g")
+        .attr("transform", "translate(0," + height + ")")
+        .call(d3.axisBottom(x));
+
+    // add the y Axis
+    svg.append("g")
+        .call(d3.axisLeft(y));
+
+  });
+
+
+  //-----Construcción de la  nube-----//
+
+  // set the dimensions and margins of the graph
+  var width3 = 200
+      height3 = 200;
+
+
+  // get the data
+  d3.csv("data/publicacionesEtnias.csv", function(error, data) {
+    if (error) throw error;
+
+    // Constructs a new cloud layout instance. It run an algorythm to find the position of words that suits your requirements
+    // Wordcloud features that are different from one word to the other must be here
+    var layout = d3.layout.cloud()
+      .size([width3, height3])
+      .words(data.map(function(d) {console.log(d.pueblo + " y " + d.a2003); return {text: d.pueblo, size: d.a2003}; }))
+      .padding(5)        //space between words
+      .rotate(function() { return ~~(Math.random() * 2) * 90; })
+      .fontSize(function(d) { return d.size; })      // font size of words
+      .on("end", draw);
+    layout.start();
+
+    // This function takes the output of 'layout' above and draw the words
+    // Wordcloud features that are THE SAME from one word to the other can be here
+
+    function draw(words) {
+      var svg3 = d3.select("div.grafico").append("svg")
+      svg3
+        .append("g")
+          .attr("transform", "translate(" + layout.size()[0] / 2 + "," + layout.size()[1] / 2 + ")")
+          .selectAll("text")
+            .data(words)
+          .enter().append("text")
+            .style("font-size", function(d) { return d.size; })
+            .style("fill", function(d) { if (d.fontSize > 2) {
+              console.log(d.size);
+              return "orange";
+            } else {
+              return "#ccc";
+            }
+            })
+            .attr("text-anchor", "middle")
+            .style("font-family", "Impact")
+            .attr("transform", function(d) {
+              return "translate(" + [d.x, d.y] + ")rotate(" + d.rotate + ")";
+            })
+            .text(function(d) { return d.text; });
+    }
+  });
+
+
+*/
+
+
+
+
+//-----Funciones-----
+  function dragged(value) {
+      var x = xScale.invert(value), index = null, midPoint, cx, xVal;
+      if(step) {
+          // if step has a value, compute the midpoint based on range values and reposition the slider based on the mouse position
+          for (var i = 0; i < rangeValues.length - 1; i++) {
+              if (x >= rangeValues[i] && x <= rangeValues[i + 1]) {
+                  index = i;
+                  break;
+              }
+          }
+          midPoint = (rangeValues[index] + rangeValues[index + 1]) / 2;
+          if (x < midPoint) {
+              cx = xScale(rangeValues[index]);
+              xVal = rangeValues[index];
+          } else {
+              cx = xScale(rangeValues[index + 1]);
+              xVal = rangeValues[index + 1];
+          }
+      } else {
+          // if step is null or 0, return the drag value as is
+          cx = xScale(x);
+          xVal = x.toFixed(3);
+      }
+      // use xVal as drag value
+      handle.attr('cx', cx);
+
+      //aquí se usa el desplazamiento del slider para actualizar los datos del mapa
+      d3.json("data/publicacionesEstados.json", function(error, publicacionesEstados) {
+        if (error) throw error;
+
+      d3.selectAll("circle")
+      .data(topojson.feature(publicacionesEstados, publicacionesEstados.objects.publicacionesEstados).features)
+          .transition().duration(400)
+          .attr("r", function(d){
+            if(d.properties["a"+xVal] != null){
+              return size(d.properties["a"+xVal]);
+            }else{
+              return 0;
+            };
+          });
+        });
+
+      // set the dimensions and margins of the graph
+      var margin = {top: 20, right: 20, bottom: 30, left: 40},
+          width = 500 - margin.left - margin.right,
+          height = 500 - margin.top - margin.bottom;
+
+      // set the ranges
+      var x = d3.scaleBand()
+                .range([0, width])
+                .padding(0.1);
+      var y = d3.scaleLinear()
+                .range([height, 0]);
+
+/*
+      d3.csv("data/publicacionesEtnias.csv", function(error, data) {
+        if (error) throw error;
+
+        var dataA = data//.filter(function(d){return d.a2013 > 0;}).sort(function(a, b) {return a.a2003 - b.a2003;});
+
+        // Scale the range of the data in the domains
+        x.domain(dataA.map(function(d) { return d.pueblo; }));
+        y.domain([0, d3.max(data, function(d) { return d.a2003; })])
+        // append the rectangles for the bar chart
+        svg.selectAll(".bar")
+            .data(dataA)
+          .transition().duration(400)
+            .attr("y", function(d) {if(d["a"+xVal] != null){ return y(d["a"+xVal])}else{return y(0)} })
+            .attr("height", function(d) {if(d["a"+xVal] != null){ return height - y(d["a"+xVal])}else{return height - y(0)} });
+        });
+              */
+
+
+      };
+
+
+
+  function clicked(d) {
+    if (active.node() === this) return reset();
+    active.classed("active", false);
+    active = d3.select(this).classed("active", true);
+
+    var bounds = path.bounds(d),
+        dx = bounds[1][0] - bounds[0][0],
+        dy = bounds[1][1] - bounds[0][1],
+        x = (bounds[0][0] + bounds[1][0]) / 2,
+        y = (bounds[0][1] + bounds[1][1]) / 2,
+        scale = Math.max(1, Math.min(8, 0.9 / Math.max(dx / (0.7 * width), dy / (0.7 * height)))),
+        translate = [width / 2 - scale * x, height / 2 - scale * y];
+
+    d3.select("#mapaSVG").transition()
+        .duration(750)
+        .call( zoom.transform, d3.zoomIdentity.translate(translate[0],translate[1]).scale(scale) ); // updated for d3 v4
+  };
+
+  function reset() {
+    active.classed("active", false);
+    active = d3.select(null);
+
+    svg.transition()
+        .duration(750)
+        .call( zoom.transform, d3.zoomIdentity ); // updated for d3 v4
+  };
+
+  function zoomed() {
+    g.style("stroke-width", 1 / d3.event.transform.k + "px");
+    g.attr("transform", d3.event.transform); // updated for d3 v4
+  };
+
+  // If the drag behavior prevents the default click,
+  // also stop propagation so we don’t click-to-zoom.
+  function stopped() {
+    if (d3.event.defaultPrevented) d3.event.stopPropagation();
+  };
+
+</script>
